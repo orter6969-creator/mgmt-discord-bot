@@ -114,7 +114,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       new ActionRowBuilder().addComponents(reason)
     );
 
-    return interaction.showModal(modal);
+    try {
+  return await interaction.showModal(modal);
+} catch (err) {
+  console.log("Modal failed:", err.message);
+    }
   }
 
   /* ===== MODAL SUBMIT → CREATE TICKET ===== */
@@ -214,6 +218,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }, 5000);
   }
 });
+client.on("error", (err) => {
+  console.error("Client error:", err);
+});
 
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
+});
 /* ================= LOGIN ================= */
 client.login(TOKEN);
