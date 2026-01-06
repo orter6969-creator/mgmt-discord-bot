@@ -1,5 +1,12 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const { 
+  Client, 
+  GatewayIntentBits, 
+  ChannelType, 
+  PermissionsBitField, 
+  Events 
+} = require("discord.js");
 const fs = require("fs");
+const { ROLES } = require("./config/roles");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -14,7 +21,7 @@ const client = new Client({
   ],
 });
 
-// 🔄 Load Commands
+// ================= LOAD COMMANDS =================
 client.commands = new Map();
 const commandFiles = fs.readdirSync("./commands").filter(f => f.endsWith(".js"));
 
@@ -23,15 +30,17 @@ for (const file of commandFiles) {
   client.commands.set(command.name, command);
 }
 
+// ================= READY =================
 client.once("ready", () => {
   console.log(`✅ MGMT Bot Online: ${client.user.tag}`);
 });
 
-// 🔐 Role Check
+// ================= ROLE CHECK =================
 function hasPermission(member, allowedRoles) {
-  return member.roles.cache.some(r => allowedRoles.includes(r.id));
+  return member.roles.cache.some(role => allowedRoles.includes(role.id));
 }
 
+// ================= COMMAND HANDLER =================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (!message.guild) return;
@@ -56,4 +65,80 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+// ================= BUTTON INTERACTION (TICKETS) =================
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+  if (interaction.customId !== "create_ticket") return;
+
+  const guild = interaction.guild;
+  const member = interaction.member;
+
+  if (guild.id !== GUILD_ID) {
+    return interaction.reply({ content: "❌ Invalid server.", ephemeral: true });
+  }
+
+  const category = guild.channels.cache.find(
+    c => c.name === "🎫 TICKETS" && c.type === ChannelType.GuildCategory
+  );
+
+  if (!category) {
+    return interaction.reply({
+      content: "❌ Ticket category not found.",
+      ephemeral: true,
+    });
+  }
+
+  const channelName = `ticket-${member.user.username}`.toLowerCase();
+
+  const existing = guild.channels.cache.find(c => c.name === channelName);
+  if (existing) {
+    return interaction.reply({
+      content: "⚠️ You already have an open ticket.",
+      ephemeral: true,
+    });
+  }
+
+  const channel = await guild.channels.create({
+    name: channelName,
+    type: ChannelType.GuildText,
+    parent: category.id,
+    permissionOverwrites: [
+      {
+        id: guild.roles.everyone.id,
+        deny: [PermissionsBitField.Flags.ViewChannel],
+      },
+      {
+        id: member.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ReadMessageHistory,
+        ],
+      },
+      {
+        id: ROLES.ADMIN,
+        allow: [PermissionsBitField.Flags.ViewChannel],
+      },
+      {
+        id: ROLES.MANAGER,
+        allow: [PermissionsBitField.Flags.ViewChannel],
+      },
+    ],
+  });
+
+  await channel.send(
+    `🎫 **Ticket Created**\n\n` +
+    `User: <@${member.id}>\n` +
+    `Please explain your issue clearly.\n\n` +
+    `🔒 Only MGMT can view this.\n` +
+    `Use \`!close\` to close this ticket.`
+  );
+
+  await interaction.reply({
+    content: `✅ Ticket created: ${channel}`,
+    ephemeral: true,
+  });
+});
+
+// ================= LOGIN =================
 client.login(TOKEN);
