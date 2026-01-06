@@ -1,10 +1,18 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  ChannelType, 
-  PermissionsBitField, 
-  Events 
+const {
+  Client,
+  GatewayIntentBits,
+  ChannelType,
+  PermissionsBitField,
+  Events,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
 } = require("discord.js");
+
 const fs = require("fs");
 const { ROLES } = require("./config/roles");
 
@@ -21,7 +29,7 @@ const client = new Client({
   ],
 });
 
-// ================= LOAD COMMANDS =================
+/* ================= LOAD COMMANDS ================= */
 client.commands = new Map();
 const commandFiles = fs.readdirSync("./commands").filter(f => f.endsWith(".js"));
 
@@ -30,17 +38,17 @@ for (const file of commandFiles) {
   client.commands.set(command.name, command);
 }
 
-// ================= READY =================
+/* ================= READY ================= */
 client.once("ready", () => {
   console.log(`✅ MGMT Bot Online: ${client.user.tag}`);
 });
 
-// ================= ROLE CHECK =================
+/* ================= ROLE CHECK ================= */
 function hasPermission(member, allowedRoles) {
   return member.roles.cache.some(role => allowedRoles.includes(role.id));
 }
 
-// ================= COMMAND HANDLER =================
+/* ================= COMMAND HANDLER ================= */
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (!message.guild) return;
@@ -65,80 +73,147 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// ================= BUTTON INTERACTION (TICKETS) =================
+/* ================= INTERACTIONS (TICKETS) ================= */
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId !== "create_ticket") return;
 
-  const guild = interaction.guild;
-  const member = interaction.member;
+  /* ===== BUTTON → OPEN MODAL ===== */
+  if (interaction.isButton() && interaction.customId === "create_ticket") {
 
-  if (guild.id !== GUILD_ID) {
-    return interaction.reply({ content: "❌ Invalid server.", ephemeral: true });
+    const modal = new ModalBuilder()
+      .setCustomId("ticket_modal")
+      .setTitle("🎫 Create Ticket");
+
+    const fullName = new TextInputBuilder()
+      .setCustomId("full_name")
+      .setLabel("Full Name")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const idn = new TextInputBuilder()
+      .setCustomId("idn")
+      .setLabel("IDN")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const category = new TextInputBuilder()
+      .setCustomId("category")
+      .setLabel("Category")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const reason = new TextInputBuilder()
+      .setCustomId("reason")
+      .setLabel("Reason")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(fullName),
+      new ActionRowBuilder().addComponents(idn),
+      new ActionRowBuilder().addComponents(category),
+      new ActionRowBuilder().addComponents(reason)
+    );
+
+    return interaction.showModal(modal);
   }
 
-  const category = guild.channels.cache.find(
-    c => c.name === "🎫 TICKETS" && c.type === ChannelType.GuildCategory
-  );
+  /* ===== MODAL SUBMIT → CREATE TICKET ===== */
+  if (interaction.isModalSubmit() && interaction.customId === "ticket_modal") {
 
-  if (!category) {
+    const guild = interaction.guild;
+    const member = interaction.member;
+
+    const fullName = interaction.fields.getTextInputValue("full_name");
+    const idn = interaction.fields.getTextInputValue("idn");
+    const categoryValue = interaction.fields.getTextInputValue("category");
+    const reason = interaction.fields.getTextInputValue("reason");
+
+    const ticketCategory = guild.channels.cache.find(
+      c => c.name === "🎫 TICKETS" && c.type === ChannelType.GuildCategory
+    );
+
+    if (!ticketCategory) {
+      return interaction.reply({
+        content: "❌ Ticket category not found.",
+        ephemeral: true,
+      });
+    }
+
+    const channel = await guild.channels.create({
+      name: `ticket-${member.user.username}`.toLowerCase(),
+      type: ChannelType.GuildText,
+      parent: ticketCategory.id,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          deny: [PermissionsBitField.Flags.ViewChannel],
+        },
+        {
+          id: member.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages,
+            PermissionsBitField.Flags.ReadMessageHistory,
+          ],
+        },
+        {
+          id: ROLES.ADMIN,
+          allow: [PermissionsBitField.Flags.ViewChannel],
+        },
+        {
+          id: ROLES.MANAGER,
+          allow: [PermissionsBitField.Flags.ViewChannel],
+        },
+      ],
+    });
+
+    const embed = new EmbedBuilder()
+      .setTitle("🎫 Ticket Details")
+      .setColor(0x5865F2)
+      .addFields(
+        { name: "👤 Full Name", value: fullName },
+        { name: "🆔 IDN", value: idn },
+        { name: "📂 Category", value: categoryValue },
+        { name: "📝 Reason", value: reason }
+      )
+      .setTimestamp();
+
+    const closeButton = new ButtonBuilder()
+      .setCustomId("close_ticket")
+      .setLabel("🔒 Close Ticket")
+      .setStyle(ButtonStyle.Danger);
+
+    const row = new ActionRowBuilder().addComponents(closeButton);
+
+    const msg = await channel.send({
+      content: `<@${member.id}>`,
+      embeds: [embed],
+      components: [row],
+    });
+
+    await msg.pin();
+
     return interaction.reply({
-      content: "❌ Ticket category not found.",
+      content: `✅ Ticket created: ${channel}`,
       ephemeral: true,
     });
   }
 
-  const channelName = `ticket-${member.user.username}`.toLowerCase();
+  /* ===== CLOSE TICKET BUTTON ===== */
+  if (interaction.isButton() && interaction.customId === "close_ticket") {
+    if (!interaction.channel.name.startsWith("ticket-")) {
+      return interaction.reply({
+        content: "❌ This is not a ticket channel.",
+        ephemeral: true,
+      });
+    }
 
-  const existing = guild.channels.cache.find(c => c.name === channelName);
-  if (existing) {
-    return interaction.reply({
-      content: "⚠️ You already have an open ticket.",
-      ephemeral: true,
-    });
+    await interaction.reply("🔒 Closing ticket in 5 seconds...");
+    setTimeout(() => {
+      interaction.channel.delete();
+    }, 5000);
   }
-
-  const channel = await guild.channels.create({
-    name: channelName,
-    type: ChannelType.GuildText,
-    parent: category.id,
-    permissionOverwrites: [
-      {
-        id: guild.roles.everyone.id,
-        deny: [PermissionsBitField.Flags.ViewChannel],
-      },
-      {
-        id: member.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory,
-        ],
-      },
-      {
-        id: ROLES.ADMIN,
-        allow: [PermissionsBitField.Flags.ViewChannel],
-      },
-      {
-        id: ROLES.MANAGER,
-        allow: [PermissionsBitField.Flags.ViewChannel],
-      },
-    ],
-  });
-
-  await channel.send(
-    `🎫 **Ticket Created**\n\n` +
-    `User: <@${member.id}>\n` +
-    `Please explain your issue clearly.\n\n` +
-    `🔒 Only MGMT can view this.\n` +
-    `Use \`!close\` to close this ticket.`
-  );
-
-  await interaction.reply({
-    content: `✅ Ticket created: ${channel}`,
-    ephemeral: true,
-  });
 });
 
-// ================= LOGIN =================
+/* ================= LOGIN ================= */
 client.login(TOKEN);
