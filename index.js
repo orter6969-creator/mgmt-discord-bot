@@ -30,6 +30,7 @@ const {
 
 const fs = require("fs");
 const { ROLES } = require("./config/roles");
+const { CHANNELS } = require("./config/channels");
 
 /* ================= ENV ================= */
 const TOKEN = process.env.DISCORD_TOKEN;
