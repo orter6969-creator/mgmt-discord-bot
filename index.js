@@ -1,3 +1,18 @@
+/* ================= EXPRESS (RENDER FREE FIX) ================= */
+const express = require("express");
+const app = express();
+
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("MGMT Bot is running");
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Web server running on port ${PORT}`);
+});
+
+/* ================= DISCORD IMPORTS ================= */
 const {
   Client,
   GatewayIntentBits,
@@ -16,10 +31,12 @@ const {
 const fs = require("fs");
 const { ROLES } = require("./config/roles");
 
+/* ================= ENV ================= */
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const PREFIX = "!";
 
+/* ================= CLIENT ================= */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -115,9 +132,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     );
 
     try {
-  return await interaction.showModal(modal);
-} catch (err) {
-  console.log("Modal failed:", err.message);
+      return await interaction.showModal(modal);
+    } catch (err) {
+      console.log("Modal failed:", err.message);
+      return;
     }
   }
 
@@ -137,10 +155,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     );
 
     if (!ticketCategory) {
-      return interaction.reply({
-        content: "❌ Ticket category not found.",
-        ephemeral: true,
-      });
+      return interaction.reply({ content: "❌ Ticket category not found.", ephemeral: true });
     }
 
     const channel = await guild.channels.create({
@@ -160,14 +175,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             PermissionsBitField.Flags.ReadMessageHistory,
           ],
         },
-        {
-          id: ROLES.ADMIN,
-          allow: [PermissionsBitField.Flags.ViewChannel],
-        },
-        {
-          id: ROLES.MANAGER,
-          allow: [PermissionsBitField.Flags.ViewChannel],
-        },
+        { id: ROLES.ADMIN, allow: [PermissionsBitField.Flags.ViewChannel] },
+        { id: ROLES.MANAGER, allow: [PermissionsBitField.Flags.ViewChannel] },
       ],
     });
 
@@ -206,24 +215,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
   /* ===== CLOSE TICKET BUTTON ===== */
   if (interaction.isButton() && interaction.customId === "close_ticket") {
     if (!interaction.channel.name.startsWith("ticket-")) {
-      return interaction.reply({
-        content: "❌ This is not a ticket channel.",
-        ephemeral: true,
-      });
+      return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
     }
 
     await interaction.reply("🔒 Closing ticket in 5 seconds...");
-    setTimeout(() => {
-      interaction.channel.delete();
-    }, 5000);
+    setTimeout(() => interaction.channel.delete(), 5000);
   }
 });
-client.on("error", (err) => {
-  console.error("Client error:", err);
-});
 
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection:", reason);
-});
+/* ================= SAFETY ================= */
+client.on("error", (err) => console.error("Client error:", err));
+process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
+
 /* ================= LOGIN ================= */
 client.login(TOKEN);
