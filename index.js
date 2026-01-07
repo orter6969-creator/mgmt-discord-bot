@@ -91,12 +91,52 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+/* ================= TRANSCRIPT FUNCTION ================= */
+async function createHTMLTranscript(channel) {
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const sorted = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  let html = `
+  <html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Ticket Transcript</title>
+    <style>
+      body { font-family: Arial; background:#0f172a; color:#e5e7eb; padding:20px; }
+      .msg { margin-bottom:12px; }
+      .user { font-weight:bold; color:#38bdf8; }
+      .time { font-size:12px; color:#94a3b8; }
+      .content { margin-left:10px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h2>Ticket Transcript — #${channel.name}</h2>
+    <hr>
+  `;
+
+  for (const msg of sorted.values()) {
+    html += `
+      <div class="msg">
+        <div class="user">${msg.author.tag}</div>
+        <div class="time">${new Date(msg.createdTimestamp).toLocaleString()}</div>
+        <div class="content">${msg.content || "[No text]"}</div>
+      </div>
+    `;
+  }
+
+  html += `
+  </body>
+  </html>
+  `;
+
+  return Buffer.from(html);
+}
+
 /* ================= INTERACTIONS (TICKETS) ================= */
 client.on(Events.InteractionCreate, async (interaction) => {
 
   /* ===== BUTTON → OPEN MODAL ===== */
   if (interaction.isButton() && interaction.customId === "create_ticket") {
-
     const modal = new ModalBuilder()
       .setCustomId("ticket_modal")
       .setTitle("🎫 Create Ticket");
@@ -146,11 +186,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const guild = interaction.guild;
     const member = interaction.member;
 
-    const fullName = interaction.fields.getTextInputValue("full_name");
-    const idn = interaction.fields.getTextInputValue("idn");
-    const categoryValue = interaction.fields.getTextInputValue("category");
-    const reason = interaction.fields.getTextInputValue("reason");
-
     const ticketCategory = guild.channels.cache.find(
       c => c.name === "🎫 TICKETS" && c.type === ChannelType.GuildCategory
     );
@@ -164,10 +199,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       type: ChannelType.GuildText,
       parent: ticketCategory.id,
       permissionOverwrites: [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        },
+        { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
         {
           id: member.id,
           allow: [
@@ -185,10 +217,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .setTitle("🎫 Ticket Details")
       .setColor(0x5865F2)
       .addFields(
-        { name: "👤 Full Name", value: fullName },
-        { name: "🆔 IDN", value: idn },
-        { name: "📂 Category", value: categoryValue },
-        { name: "📝 Reason", value: reason }
+        { name: "👤 Full Name", value: interaction.fields.getTextInputValue("full_name") },
+        { name: "🆔 IDN", value: interaction.fields.getTextInputValue("idn") },
+        { name: "📂 Category", value: interaction.fields.getTextInputValue("category") },
+        { name: "📝 Reason", value: interaction.fields.getTextInputValue("reason") }
       )
       .setTimestamp();
 
@@ -197,36 +229,39 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .setLabel("🔒 Close Ticket")
       .setStyle(ButtonStyle.Danger);
 
-    const row = new ActionRowBuilder().addComponents(closeButton);
-
     const msg = await channel.send({
-      content: `<@${member.id}>`,
       embeds: [embed],
-      components: [row],
+      components: [new ActionRowBuilder().addComponents(closeButton)],
     });
 
     await msg.pin();
 
-    return interaction.reply({
-      content: `✅ Ticket created: ${channel}`,
-      ephemeral: true,
-    });
+    return interaction.reply({ content: `✅ Ticket created: ${channel}`, ephemeral: true });
   }
 
-  /* ===== CLOSE TICKET BUTTON ===== */
+  /* ===== CLOSE TICKET (LOG + DELETE) ===== */
   if (interaction.isButton() && interaction.customId === "close_ticket") {
-    if (!interaction.channel.name.startsWith("ticket-")) {
-      return interaction.reply({ content: "❌ This is not a ticket channel.", ephemeral: true });
+    const channel = interaction.channel;
+
+    await interaction.reply("📄 Saving transcript & closing ticket...");
+
+    const transcript = await createHTMLTranscript(channel);
+    const logChannel = interaction.guild.channels.cache.get(CHANNELS.TICKET_LOGS);
+
+    if (logChannel) {
+      await logChannel.send({
+        content: `📁 **Ticket Closed:** ${channel.name}`,
+        files: [{ attachment: transcript, name: `${channel.name}.html` }],
+      });
     }
 
-    await interaction.reply("🔒 Closing ticket in 5 seconds...");
-    setTimeout(() => interaction.channel.delete(), 5000);
+    setTimeout(() => channel.delete(), 5000);
   }
 });
 
 /* ================= SAFETY ================= */
-client.on("error", (err) => console.error("Client error:", err));
-process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
+client.on("error", err => console.error("Client error:", err));
+process.on("unhandledRejection", reason => console.error("Unhandled rejection:", reason));
 
 /* ================= LOGIN ================= */
 client.login(TOKEN);
